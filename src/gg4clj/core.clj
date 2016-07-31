@@ -63,6 +63,8 @@
     (string? code) (quote-string code)
     true (pr-str code)))
 
+
+
 (defn data-frame
   "A helper function that takes frame-like data in the 'natural' Clojure format of
   {:key [vector of values] :key2 [vector ...] ...} and returns the Clojure representation
@@ -90,9 +92,15 @@
   "Wraps the given R command with commands to load ggplot2 and save the last plot to the given file."
   [command filepath width height]
   (to-r
-    [[:library :ggplot2]
-     command
-     [:ggsave {:filename filepath :width width :height height}]]))
+   [[:library :ggplot2]
+    command
+    [:ggsave {:filename filepath :width width :height height}]]))
+
+(defn- dump [svg step]
+  (spit (str step ".svg") svg)
+  svg)
+
+
 
 (defn- mangle-ids
   "ggplot produces SVGs with elements that have id attributes. These ids are unique within each plot, but are
@@ -102,18 +110,18 @@
   This is a workaround which could be removed if there was a way to generate better SVG in R. Also:
   http://stackoverflow.com/questions/1732348/regex-match-open-tags-except-xhtml-self-contained-tags/1732454#1732454"
   [svg]
-  (let [ids (map last (re-seq #"id=\"([^\"]*)\"" svg))
+  (let [ids (map last (re-seq #"id='([^']*)'" svg))
         id-map (zipmap ids (repeatedly (count ids) #(str (UUID/randomUUID))))]
     (-> svg
-        (string/replace #"id=\"([^\"]*)\"" #(str "id=\"" (get id-map (last %)) "\""))
-        (string/replace #"\"#([^\"]*)\"" #(str "\"#" (get id-map (last %)) "\""))
-        (string/replace #"url\(#([^\"]*)\)" #(str "url(#" (get id-map (last %)) ")")))))
+        (string/replace #"id='([^']*)'" #(str "id='" (get id-map (last %)) "'"))
+        (string/replace #"'#([^']*)'" #(str "'#" (get id-map (last %)) "'"))
+        (string/replace #"url\(#([^']*)\)" #(str "url(#" (get id-map (last %)) ")")))))
 
-(defn render
+
+(defn- prerender
   "Takes a ggplot2 command, expressed in the Clojure representation of R code, and returns the plot rendered to SVG
   as a string. Options can be passed in a second argument, if wished, as a map. Supported options are :width of plot
   (in inches!) and :height. If only :width is given then a sensible default height will be chosen."
-  ([plot-command] (render plot-command {}))
   ([plot-command options]
    (let [width (or (:width options) 6.5)
          height (or (:height options) (/ width 1.618))
@@ -127,8 +135,12 @@
          rendered-plot (slurp out-path)
          _ (.delete r-file)
          _ (.delete out-file)]
-     (mangle-ids rendered-plot))))
+     rendered-plot)))
 
+(defn render ([plot-command] (render plot-command {}))
+  ([plot-command options]
+   (let [plot (prerender plot-command options)]
+     (mangle-ids plot))))
 
 ;; * Gorilla REPL rendering *
 
